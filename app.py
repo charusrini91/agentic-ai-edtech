@@ -7,34 +7,60 @@ DB = "leads.db"
 
 def db():
     con = sqlite3.connect(DB)
-    con.execute("""CREATE TABLE IF NOT EXISTS leads(
-        lead_id TEXT PRIMARY KEY, created_at TEXT, source TEXT, name TEXT,
-        email TEXT, phone TEXT, course_interest TEXT, qualification TEXT,
-        experience TEXT, budget REAL, enquiry TEXT, preferred_mode TEXT,
-        urgency TEXT, profile TEXT, intent_score REAL, lead_score REAL,
-        classification TEXT, confidence REAL, next_action TEXT,
-        human_label TEXT, final_outcome TEXT, followup_at TEXT, notes TEXT)""")
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS leads(
+            lead_id TEXT PRIMARY KEY,
+            created_at TEXT,
+            source TEXT,
+            name TEXT,
+            email TEXT,
+            phone TEXT,
+            course_interest TEXT,
+            qualification TEXT,
+            experience TEXT,
+            budget REAL,
+            enquiry TEXT,
+            preferred_mode TEXT,
+            urgency TEXT,
+            profile TEXT,
+            intent_score REAL,
+            lead_score REAL,
+            classification TEXT,
+            confidence REAL,
+            next_action TEXT,
+            human_label TEXT,
+            final_outcome TEXT,
+            followup_at TEXT,
+            notes TEXT
+        )
+    """)
+    con.commit()
     return con
 
 def save_lead(x):
-    con=db()
-    con.execute("""INSERT OR REPLACE INTO leads (lead_id,
-        name,
-        email,
-        phone,
-        source,
-        course_interest,
-        qualification,
-        experience,
-        budget,
-        preferred_mode,
-        urgency,
-        enquiry,
-        human_label,
-        final_outcome
-    ) VALUES 
-    (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", tuple(x.values()))
-    con.commit(); con.close()
+    """Save one lead using explicit column names.
+
+    Explicit columns prevent SQLite errors when the dictionary order changes
+    or when the database schema contains columns in a different order.
+    """
+    con = db()
+    columns = [
+        "lead_id", "created_at", "source", "name", "email", "phone",
+        "course_interest", "qualification", "experience", "budget",
+        "enquiry", "preferred_mode", "urgency", "profile", "intent_score",
+        "lead_score", "classification", "confidence", "next_action",
+        "human_label", "final_outcome", "followup_at", "notes"
+    ]
+    values = [x.get(column) for column in columns]
+    placeholders = ",".join(["?"] * len(columns))
+
+    con.execute(
+        f"INSERT OR REPLACE INTO leads ({','.join(columns)}) "
+        f"VALUES ({placeholders})",
+        values
+    )
+    con.commit()
+    con.close()
 
 def load_leads():
     con=db()
@@ -59,7 +85,7 @@ def rule_agent(row):
     return score,cls,action
 
 def single_llm(row):
-    key=os.getenv("OPENAI_API_KEY")
+    key=st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", ""))
     if not key:
         s,c,a=rule_agent(row)
         return min(100,s+5),c,a,0.68
@@ -70,7 +96,7 @@ def single_llm(row):
 Recommend one next action. Return JSON only with:
 score (0-100), classification, action, confidence (0-1).
 Lead: {row.to_dict()}"""
-        r=client.responses.create(model=os.getenv("OPENAI_MODEL","gpt-4.1-mini"), input=prompt)
+        r=client.responses.create(model=st.secrets.get("OPENAI_MODEL", os.getenv("OPENAI_MODEL","gpt-4.1-mini")), input=prompt)
         obj=json.loads(r.output_text)
         return float(obj["score"]),obj["classification"],obj["action"],float(obj.get("confidence",0.7))
     except Exception:
@@ -149,7 +175,12 @@ with tab1:
                 "confidence":conf,"next_action":action,"human_label":human_label,
                 "final_outcome":outcome,"followup_at":follow,
                 "notes":f"Rule={rule_cls}; SingleLLM={llm_cls}"}
-        save_lead(record)
+        try:
+            save_lead(record)
+        except sqlite3.Error as exc:
+            st.error(f"SQLite could not save this lead: {exc}")
+            st.stop()
+
         st.success("Lead processed and stored.")
         a,b,c,d=st.columns(4)
         a.metric("Agentic Score",f"{score:.1f}")
