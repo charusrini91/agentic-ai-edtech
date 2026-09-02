@@ -18,7 +18,21 @@ def db():
 
 def save_lead(x):
     con=db()
-    con.execute("""INSERT OR REPLACE INTO leads VALUES
+    con.execute("""INSERT OR REPLACE INTO leads (lead_id,
+        name,
+        email,
+        phone,
+        source,
+        course_interest,
+        qualification,
+        experience,
+        budget,
+        preferred_mode,
+        urgency,
+        enquiry,
+        human_label,
+        final_outcome
+    ) VALUES 
     (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", tuple(x.values()))
     con.commit(); con.close()
 
